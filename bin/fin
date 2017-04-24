@@ -2758,6 +2758,22 @@ update ()
 		fi
 	fi
 
+	# Check that 0.0.0.0:80 is not busy during fresh install on Linux
+	if [[ "$UPGRADE_IN_PROGRESS" != "1" ]] && is_linux && (sudo netstat -anp | grep LISTEN | grep :::80); then
+		echo-error "Other software (most likely Apache) is using 0.0.0.0:80" \
+			"Please re-configure it to use other port (like 8080) or other ip (127.0.0.1)"
+			"See output above the error for details on which software is using it"
+		exit 1
+	fi
+
+	# Check that 0.0.0.0:443 is not busy during fresh install on Linux
+	if [[ "$UPGRADE_IN_PROGRESS" != "1" ]] && is_linux && (sudo netstat -anp | grep LISTEN | grep :::443); then
+		echo-error "Other software (most likely Apache) is using 0.0.0.0:443" \
+			"Please re-configure it to use other port (like 4433) or other ip (127.0.0.1)"
+			"See output above the error for details on which software is using it"
+		exit 1
+	fi
+
 	# Pre-update check #2: warn if boot2docker will need to be upgraded
 	if (is_mac || is_windows) && ! is_docker_native && [[ ${UPGRADE_IN_PROGRESS} == 1 ]]; then
 		local b2d_version=$(docker version --format '{{.Server.Version}}')
