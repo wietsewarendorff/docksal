@@ -2718,8 +2718,7 @@ install_proxy_service_wsl ()
 		-e PROJECT_INACTIVITY_TIMEOUT="${PROJECT_INACTIVITY_TIMEOUT:-0}" \
 		-e PROJECT_DANGLING_TIMEOUT="${PROJECT_DANGLING_TIMEOUT:-0}" \
 		-v docksal_projects:/projects \
-		-v /var/run/docker.sock:/var/run/docker.sock \
-		"${IMAGE_VHOST_PROXY}" >/dev/null
+		"${IMAGE_VHOST_PROXY}"
 }
 
 # Start system-wide dns service
