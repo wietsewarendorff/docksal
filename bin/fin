@@ -417,6 +417,13 @@ sudocker ()
 	powershell.exe start-process docker -Args \'${*}\' -verb runas
 }
 
+sudonetsh ()
+{
+	# left for future use
+	powershell.exe start-process netsh -Args \'${*}\' -verb runas
+}
+
+
 # Universal Bash parameter parsing
 # Parse equals separated params into named local variables
 # Standalone named parameter value will equal param name (--force creates variable $force=="force")
@@ -2661,8 +2668,8 @@ configure_network ()
 	fi
 
 	if is_wsl; then
-		cmd.exe /c netsh interface ip add address name=\"vEthernet \(DockerNAT\)\" address="${DOCKSAL_NATIVE_IP}" mask="255.255.255.0"
-		cmd.exe /c netsh interface ip add address name=\"vEthernet \(DockerNAT\)\" address="${DOCKSAL_NATIVE_HOST_IP}" mask="255.255.255.0"
+		sudonetsh interface ip add address name=\"vEthernet \(DockerNAT\)\" address="${DOCKSAL_NATIVE_IP}" mask="255.255.255.0"
+		sudonetsh interface ip add address name=\"vEthernet \(DockerNAT\)\" address="${DOCKSAL_NATIVE_HOST_IP}" mask="255.255.255.0"
 		# Wait 5s for network configuration to apply
 		sleep 5
 	fi
@@ -2733,6 +2740,20 @@ install_dns_service ()
 		-p "${DOCKSAL_IP}:53:53/udp" --cap-add=NET_ADMIN --dns="$DOCKSAL_DNS_UPSTREAM" --dns="8.8.4.4" \
 		-e DNS_IP="$DOCKSAL_IP" -e DNS_DOMAIN="$DOCKSAL_DNS_DOMAIN" -e LOG_QUERIES="$DOCKSAL_DNS_DEBUG" \
 		-v /var/run/docker.sock:/var/run/docker.sock \
+		"${IMAGE_DNS}" >/dev/null
+}
+
+# Start system-wide dns service
+install_dns_service_wsl ()
+{
+	docker rm -f docksal-dns >/dev/null 2>&1 || true
+	# This container cannot use the host's resolver configuration. The host itself may be configured to use this
+	# container for DNS resolution (Windows and Linux), so we will get into a recursion.
+	# DOCKSAL_DNS_UPSTREAM can be set to the controlled network DNS server address (VPN/LAN) in the global docksal.env file.
+	# When user disconnects from that network, the backup DNS will handle name resolution (assuming 8.8.4.4 is reachable).
+	sudocker run -d --name docksal-dns --label "io.docksal.group=system" --restart=always \
+		-p "${DOCKSAL_IP}:53:53/udp" --cap-add=NET_ADMIN --dns="$DOCKSAL_DNS_UPSTREAM" --dns="8.8.4.4" \
+		-e DNS_IP="$DOCKSAL_IP" -e DNS_DOMAIN="$DOCKSAL_DNS_DOMAIN" -e LOG_QUERIES="$DOCKSAL_DNS_DEBUG" \
 		"${IMAGE_DNS}" >/dev/null
 }
 
@@ -2841,9 +2862,9 @@ configure_resolver_wsl () {
 	network_id="vEthernet (DockerNAT)"
 
 	# Set DNS server to Docksal IP on the VM's VBox adapter
-	cmd.exe /c netsh interface ip set dnsservers "${network_id}" static ${dns_ip} none
+	sudonetsh interface ip set dnsservers "${network_id}" static ${dns_ip} none
 	# Set the adapter metric (priority) to 10, so its DNS settings will take over other adapters
-	cmd.exe /c netsh interface ip set interface "${network_id}" metric=${metric}
+	sudonetsh interface ip set interface "${network_id}" metric=${metric}
 
 	# Flush DNS cache
 	echo-green "Clearing DNS cache..."
@@ -4109,9 +4130,9 @@ reset ()
 	if [[ "$1" == "system" ]] ; then
 		echo-green 'Resetting Docksal services...'
 		echo ' * proxy'
-		install_proxy_service
+		is_wsl && install_proxy_service_wsl || install_proxy_service
 		echo ' * dns and resolver for .docksal domain'
-		install_dns_service
+		is_wsl && install_dns_service_wsl || install_dns_service
 		configure_resolver
 		echo ' * ssh-agent'
 		install_sshagent_service
