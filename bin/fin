@@ -411,10 +411,10 @@ winsudo ()
 	cygstart --action=runas cmd /c "$@"
 }
 
-sudowin ()
+sudocker ()
 {
 	# left for future use
-	powershell.exe Start-Process -Verb runAs -FilePath "cmd.exe" -Args '/c','dir','/?'
+	powershell.exe start-process docker -Args \'${*}\' -verb runas
 }
 
 # Universal Bash parameter parsing
@@ -2695,6 +2695,33 @@ install_proxy_service ()
 		"${IMAGE_VHOST_PROXY}" >/dev/null
 }
 
+# Start system-wide vhost-proxy service for WSL
+install_proxy_service_wsl ()
+{
+	docker rm -f docksal-vhost-proxy
+	docker volume rm docksal_projects >/dev/null 2>&1 || true
+
+	# Create a bind mount volume to the projects directory if defined. If not - create an empty volume.
+	local volume_options=""
+	[[ "$PROJECTS_ROOT" != "" ]] && [[ -d "$PROJECTS_ROOT" ]] && \
+		# Don't use quotes with the device option or the bind mount will not work
+		volume_options="--opt type=none --opt device=$PROJECTS_ROOT --opt o=bind"
+	docker volume create --name docksal_projects $volume_options >/dev/null 2>&1
+
+	# PROJECT_INACTIVITY_TIMEOUT, PROJECT_DANGLING_TIMEOUT and PROJECTS_ROOT (docksal_projects volume) are used in CI
+	# and are inactive unless configured.
+	# PROJECT_INACTIVITY_TIMEOUT - defines the timeout of inactivity after which the project stack will be stopped (e.g. 0.5h)
+	# PROJECT_DANGLING_TIMEOUT - defines the timeout of inactivity after which the project stack and code base will be
+	# entirely wiped out from the host (e.g. 168h). WARNING: use at your own risk!
+	sudocker run -d --name docksal-vhost-proxy --label "io.docksal.group=system" --restart=always \
+		-p "${DOCKSAL_VHOST_PROXY_IP:-$DOCKSAL_IP}:${DOCKSAL_VHOST_PROXY_PORT_HTTP:-80}":80 -p "${DOCKSAL_VHOST_PROXY_IP:-$DOCKSAL_IP}:${DOCKSAL_VHOST_PROXY_PORT_HTTPS:-443}":443 \
+		-e PROJECT_INACTIVITY_TIMEOUT="${PROJECT_INACTIVITY_TIMEOUT:-0}" \
+		-e PROJECT_DANGLING_TIMEOUT="${PROJECT_DANGLING_TIMEOUT:-0}" \
+		-v docksal_projects:/projects \
+		-v /var/run/docker.sock:/var/run/docker.sock \
+		"${IMAGE_VHOST_PROXY}" >/dev/null
+}
+
 # Start system-wide dns service
 install_dns_service ()
 {
@@ -4063,7 +4090,7 @@ reset ()
 
 	if [[ "$1" == "proxy" ]] ; then
 		echo-green 'Resetting Docksal HTTP/HTTPS reverse proxy service...'
-		install_proxy_service
+		is_wsl && install_proxy_service_wsl || install_proxy_service
 		return
 	fi
 
