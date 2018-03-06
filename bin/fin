@@ -2748,6 +2748,28 @@ stats_ping ()
 	return 0
 }
 
+check_local_port ()
+{
+	# Assuming we do not need to perform this check with boot2docker
+	(! is_linux || ! is_docker_native) && return
+
+	local port="$1"
+	local port_usage
+
+	# The -i ":$port" checks for an exact port match, while grep "*:$port" checks for the wildcard interface match.
+	# This way we don't need a complex grep here.
+	(is_linux || is_mac) && port_usage=$(sudo lsof -n -P -i :${port} | grep "LISTEN")
+	is_windows && port_usage=$(netstat -aon | gawk ' $2~/:${port}/ { system("tasklist /svc /FI \"PID eq " $5 "\"") } ')
+
+	if [[ "$port_usage" != "" ]]; then
+		echo-error "Port binding conflict detected" \
+			"Cannot bind to ${yellow}${DOCKSAL_IP}:${port}${NC} while the following process is using ${yellow}*:${port}${NC}" \
+			"${yellow}$port_usage${NC}" \
+			"Please reconfigure the other services to bind to a specific IP:PORT instead of the wildcard."
+		exit 1
+	fi
+}
+
 configure_network ()
 {
 	if is_mac; then
@@ -2793,8 +2815,13 @@ configure_network ()
 # Start system-wide vhost-proxy service
 install_proxy_service ()
 {
+	# Cleanup first
 	docker rm -f docksal-vhost-proxy >/dev/null 2>&1 || true
 	docker volume rm docksal_projects >/dev/null 2>&1 || true
+
+	# Check port availability
+	check_local_port "80"
+	check_local_port "443"
 
 	# Create a bind mount volume to the projects directory if defined and exists. Otherwise, create an empty volume.
 	if [[ -d "$PROJECTS_ROOT" ]]; then
@@ -2826,7 +2853,12 @@ install_proxy_service ()
 # Start system-wide dns service
 install_dns_service ()
 {
+	# Cleanup first
 	docker rm -f docksal-dns >/dev/null 2>&1 || true
+
+	# Check port availability
+	check_local_port "53"
+
 	# This container cannot use the host's resolver configuration. The host itself may be configured to use this
 	# container for DNS resolution (Windows and Linux), so we will get into a recursion.
 	# DOCKSAL_DNS_UPSTREAM can be set to the controlled network DNS server address (VPN/LAN) in the global docksal.env file.
@@ -2993,6 +3025,7 @@ configure_resolver ()
 
 install_sshagent_service ()
 {
+	# Cleanup first
 	docker rm -f docksal-ssh-agent >/dev/null 2>&1 || true
 	docker volume rm docksal_ssh_agent >/dev/null 2>&1 || true
 
