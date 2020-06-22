@@ -39,7 +39,7 @@ In `.docksal/etc/php/php.ini` in the project repo add the following:
 
 ```ini
 ; Mail settings
-sendmail_path = '/usr/local/bin/mhsendmail --smtp-addr=mail:1025'
+sendmail_path = '/usr/bin/msmtp -t --host=mail --port=1025'
 ```
 
 These settings are included in `docksal/cli` v2.0+, so there is no need to manually add them.
